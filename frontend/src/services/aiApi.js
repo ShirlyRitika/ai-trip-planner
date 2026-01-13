@@ -1,9 +1,9 @@
-import axios from "axios"
+import axios from "axios";
 
 const api = axios.create({
-  baseURL: "http://localhost:5000/api"
-})
+  baseURL: "https://ai-trip-planner-production-e9ff.up.railway.app/api"
+});
 
 export const generateTripAI = (data) => {
-  return api.post("/ai/generate", data)
-}
+  return api.post("/ai/generate", data);
+};

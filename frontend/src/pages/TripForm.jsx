@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import InputField from "../components/InputField";
 import { generateTripAI } from "../services/aiApi";
+import { validateLocation } from "../services/locationService";
 
 export default function TripForm() {
   const navigate = useNavigate();
@@ -18,34 +19,60 @@ export default function TripForm() {
   const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
-  };
+  const { name, value } = e.target;
+
+  // 🚫 Block numbers & symbols in city & destination
+  if ((name === "from" || name === "to") && /[^a-zA-Z\s]/.test(value)) {
+    return;
+  }
+
+  setForm({ ...form, [name]: value });
+};
+
 
   const handleSubmit = async () => {
-    setError("");
+  setError("");
 
-    if (!form.from || !form.to || !form.days || !form.budget) {
-      setError("Please fill all fields");
-      return;
-    }
+  if (!form.from || !form.to || !form.days || !form.budget) {
+    setError("Please fill all fields");
+    return;
+  }
 
-    if (form.days <= 0 || form.budget < 1000) {
-      setError("Please enter valid trip details");
-      return;
-    }
+  if (form.days <= 0 || form.budget < 1000) {
+    setError("Please enter valid trip details");
+    return;
+  }
 
-    try {
-      setLoading(true);
-      const response = await generateTripAI(form);
-      localStorage.setItem("latestTrip", JSON.stringify(response.data));
-      navigate("/itinerary");
-    } catch (err) {
-      console.error(err);
-      setError("AI failed to generate trip. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
+  // 🧭 STRICT city + country validation
+  const isValid = await validateLocation(form.from, form.to);
+
+  if (!isValid) {
+    setError("Please enter a real city and country");
+    return;   // ⛔ STOP — AI will NOT be called
+  }
+
+  try {
+    setLoading(true);
+
+    const response = await generateTripAI({
+  fromCity: form.from.trim(),
+  destination: form.to.trim(),
+  days: Number(form.days),
+  budget: Number(form.budget),
+  familyType: form.family
+});
+
+
+    localStorage.setItem("latestTrip", JSON.stringify(response.data));
+    navigate("/itinerary");
+  } catch (err) {
+    console.error(err);
+    setError("AI failed to generate trip. Please try again.");
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#e0f2fe,_#ecfeff,_#f0fdf4)] flex items-center justify-center p-6">

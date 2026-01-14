@@ -1,45 +1,30 @@
 import axios from "axios";
 import { verifyLocation } from "../services/locationService.js";
 
+/* ----------------------------------------------------
+   Helper: Get bounding box of destination
+---------------------------------------------------- */
 const getBoundingBox = async (destination) => {
-  const res = await axios.get(
-    "https://nominatim.openstreetmap.org/search",
-    {
-      params: {
-        q: destination,
-        format: "json",
-        limit: 1
-      },
-      headers: {
-        "Accept-Language": "en"
-      }
-    }
-  );
+  const res = await axios.get("https://nominatim.openstreetmap.org/search", {
+    params: { q: destination, format: "json", limit: 1 }
+  });
 
   if (!res.data.length) return null;
 
-  const box = res.data[0].boundingbox.map(Number);
-
+  const b = res.data[0].boundingbox.map(Number);
   return {
-    minLat: box[0],
-    maxLat: box[1],
-    minLon: box[2],
-    maxLon: box[3]
+    minLat: b[0], maxLat: b[1],
+    minLon: b[2], maxLon: b[3]
   };
 };
 
-
+/* ----------------------------------------------------
+   Helper: Check if a place lies inside destination
+---------------------------------------------------- */
 const isPlaceInsideRegion = async (place, box) => {
-  const res = await axios.get(
-    "https://nominatim.openstreetmap.org/search",
-    {
-      params: {
-        q: place,
-        format: "json",
-        limit: 1
-      }
-    }
-  );
+  const res = await axios.get("https://nominatim.openstreetmap.org/search", {
+    params: { q: place, format: "json", limit: 1 }
+  });
 
   if (!res.data.length) return false;
 
@@ -54,31 +39,36 @@ const isPlaceInsideRegion = async (place, box) => {
   );
 };
 
-
+/* ----------------------------------------------------
+   Validate entire itinerary
+---------------------------------------------------- */
 const validateItinerary = async (itinerary, box) => {
   for (const day of itinerary.days) {
-    for (const activity of day.activities) {
-      if (activity.place) {
-        const ok = await isPlaceInsideRegion(activity.place, box);
-        if (!ok) return false;
-      }
+    for (const place of day.activities) {
+      const ok = await isPlaceInsideRegion(place, box);
+      if (!ok) return false;
     }
   }
   return true;
 };
 
-
+/* ----------------------------------------------------
+   MAIN CONTROLLER
+---------------------------------------------------- */
 export const generateTrip = async (req, res) => {
   try {
     const { fromCity, destination, days, budget, familyType } = req.body;
 
+    const real = await verifyLocation(fromCity, destination);
+    if (!real) return res.status(400).json({ error: "Invalid location" });
+
     const box = await getBoundingBox(destination);
     if (!box) return res.status(400).json({ error: "Invalid destination" });
 
-    let parsed = null;
+    let finalTrip = null;
 
-    for (let attempt = 1; attempt <= 8; attempt++) {
-      console.log(`AI attempt ${attempt}`);
+    for (let attempt = 1; attempt <= 7; attempt++) {
+      console.log("AI attempt:", attempt);
 
       const response = await axios.post(
         "https://api.groq.com/openai/v1/chat/completions",
@@ -87,11 +77,17 @@ export const generateTrip = async (req, res) => {
           messages: [{
             role: "user",
             content: `
-Generate a ${days}-day travel plan staying strictly inside ${destination}.
-Use ONLY real places inside ${destination}. Never include any other city.
-Return only JSON.`
+Create a ${days}-day trip staying strictly inside ${destination}.
+Use only real places inside ${destination}.
+Activities must suit ${familyType}.
+Total budget: ₹${budget}.
+Return ONLY JSON in this format:
+{
+ "days":[{"day":1,"title":"","activities":[],"travelIntensity":"","estimatedCost":0}],
+ "budgetSummary":{"total":0,"stay":0,"transport":0,"food":0,"activities":0,"perDay":0}
+}`
           }],
-          temperature: 0.1
+          temperature: 0.2
         },
         { headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}` } }
       );
@@ -99,25 +95,24 @@ Return only JSON.`
       const raw = response.data.choices[0].message.content
         .replace(/```json/g, "").replace(/```/g, "").trim();
 
-      const temp = JSON.parse(raw);
+      const parsed = JSON.parse(raw);
 
-      const valid = await validateItinerary(temp, box);
+      const valid = await validateItinerary(parsed, box);
 
       if (valid) {
-        parsed = temp;
+        finalTrip = parsed;
         break;
       }
     }
 
-    if (!parsed) {
-      return res.status(400).json({ error: "AI failed to respect destination" });
+    if (!finalTrip) {
+      return res.status(400).json({ error: "Could not generate valid itinerary" });
     }
 
-    res.json(parsed);
+    res.json(finalTrip);
 
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Trip generation failed" });
+    res.status(500).json({ error: "AI generation failed" });
   }
 };
-

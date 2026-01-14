@@ -71,125 +71,53 @@ const validateItinerary = async (itinerary, box) => {
 export const generateTrip = async (req, res) => {
   try {
     const { fromCity, destination, days, budget, familyType } = req.body;
-console.log("🔥 USING NEW AI CONTROLLER VERSION —", destination);
-
-    if (!fromCity || !destination || !days || !budget || !familyType) {
-      return res.status(400).json({ error: "Missing required fields" });
-    }
-
-    // Basic real-location validation
-    const valid = await verifyLocation(fromCity, destination);
-    if (!valid) {
-      return res.status(400).json({ error: "Invalid city or destination" });
-    }
 
     const box = await getBoundingBox(destination);
-    if (!box) {
-      return res.status(400).json({ error: "Could not resolve destination region" });
-    }
-
-    // 🧠 STRICT PROMPT (AI CANNOT ESCAPE)
-    const prompt = `
-You are a professional travel planner.
-
-Rules you MUST follow:
-- ALL places must be inside "${destination}"
-- Do NOT include any other city, state, or country
-- Use only REAL places that exist in "${destination}"
-- Respect budget ₹${budget}
-- Activities suitable for ${familyType}
-
-Trip details:
-Start City: ${fromCity}
-Destination: ${destination}
-Days: ${days}
-Budget: ₹${budget}
-
-Return ONLY valid JSON in this format:
-
-{
-  "days": [
-    {
-      "day": 1,
-      "title": "",
-      "activities": [
-        {
-          "time": "9:00 AM",
-          "place": "",
-          "activity": "",
-          "duration": "",
-          "cost": 0
-        }
-      ],
-      "travelIntensity": "Low | Medium | High",
-      "estimatedCost": 0
-    }
-  ],
-  "budgetSummary": {
-    "total": ${budget},
-    "stay": 0,
-    "transport": 0,
-    "food": 0,
-    "activities": 0,
-    "perDay": 0
-  }
-}
-`;
+    if (!box) return res.status(400).json({ error: "Invalid destination" });
 
     let parsed = null;
 
-    // 🔁 Retry AI until geography is valid
-    for (let attempt = 0; attempt < 5; attempt++) {
+    for (let attempt = 1; attempt <= 8; attempt++) {
+      console.log(`AI attempt ${attempt}`);
+
       const response = await axios.post(
         "https://api.groq.com/openai/v1/chat/completions",
         {
           model: "mixtral-8x7b-32768",
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.2
+          messages: [{
+            role: "user",
+            content: `
+Generate a ${days}-day travel plan staying strictly inside ${destination}.
+Use ONLY real places inside ${destination}. Never include any other city.
+Return only JSON.`
+          }],
+          temperature: 0.1
         },
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-            "Content-Type": "application/json"
-          }
-        }
+        { headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}` } }
       );
 
       const raw = response.data.choices[0].message.content
-        .replace(/```json/g, "")
-        .replace(/```/g, "")
-        .trim();
+        .replace(/```json/g, "").replace(/```/g, "").trim();
 
-      parsed = JSON.parse(raw);
+      const temp = JSON.parse(raw);
 
-      const ok = await validateItinerary(parsed, box);
-      if (ok) break;
+      const valid = await validateItinerary(temp, box);
 
-      parsed = null;
+      if (valid) {
+        parsed = temp;
+        break;
+      }
     }
 
     if (!parsed) {
-      return res.status(400).json({
-        error: "AI could not generate a valid itinerary for this destination"
-      });
-    }
-
-    // 💰 Budget correction
-    let total = parsed.days.reduce((sum, d) => sum + d.estimatedCost, 0);
-
-    if (total > budget) {
-      const ratio = budget / total;
-      parsed.days.forEach(d => {
-        d.estimatedCost = Math.round(d.estimatedCost * ratio);
-      });
-      parsed.budgetSummary.total = budget;
-      parsed.budgetSummary.perDay = Math.round(budget / days);
+      return res.status(400).json({ error: "AI failed to respect destination" });
     }
 
     res.json(parsed);
 
   } catch (err) {
-    console.error("Trip generation error:", err);
-    res.status(500).json({ error: "AI generation failed" });
+    console.error(err);
+    res.status(500).json({ error: "Trip generation failed" });
   }
 };
+

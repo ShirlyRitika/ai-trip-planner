@@ -1,9 +1,6 @@
 import axios from "axios";
 import { verifyLocation } from "../services/locationService.js";
 
-/**
- * 1️⃣ Get bounding box of destination (city / state / country)
- */
 const getBoundingBox = async (destination) => {
   const res = await axios.get(
     "https://nominatim.openstreetmap.org/search",
@@ -31,9 +28,7 @@ const getBoundingBox = async (destination) => {
   };
 };
 
-/**
- * 2️⃣ Check if a place is INSIDE destination bounding box
- */
+
 const isPlaceInsideRegion = async (place, box) => {
   const res = await axios.get(
     "https://nominatim.openstreetmap.org/search",
@@ -59,9 +54,7 @@ const isPlaceInsideRegion = async (place, box) => {
   );
 };
 
-/**
- * 3️⃣ Validate full itinerary geography
- */
+
 const validateItinerary = async (itinerary, box) => {
   for (const day of itinerary.days) {
     for (const activity of day.activities) {
@@ -74,12 +67,11 @@ const validateItinerary = async (itinerary, box) => {
   return true;
 };
 
-/**
- * 4️⃣ MAIN CONTROLLER
- */
+
 export const generateTrip = async (req, res) => {
   try {
     const { fromCity, destination, days, budget, familyType } = req.body;
+console.log("🔥 USING NEW AI CONTROLLER VERSION —", destination);
 
     if (!fromCity || !destination || !days || !budget || !familyType) {
       return res.status(400).json({ error: "Missing required fields" });
@@ -91,7 +83,6 @@ export const generateTrip = async (req, res) => {
       return res.status(400).json({ error: "Invalid city or destination" });
     }
 
-    // 🔒 Get destination bounding box
     const box = await getBoundingBox(destination);
     if (!box) {
       return res.status(400).json({ error: "Could not resolve destination region" });

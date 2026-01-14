@@ -15,6 +15,7 @@ const searchPlace = async (query) => {
   return res.data;
 };
 
+// Unified validation for both frontend & backend
 export const validateLocation = async (from, to) => {
   try {
     const fromResults = await searchPlace(from);
@@ -22,21 +23,28 @@ export const validateLocation = async (from, to) => {
 
     if (!fromResults.length || !toResults.length) return false;
 
-    const isRealCity = (place) => {
-      const a = place.address || {};
-      return a.city || a.town || a.village || a.municipality || a.county;
+    const validPlace = (p) => {
+      const t = p.type || "";
+      return [
+        "city",
+        "town",
+        "village",
+        "hamlet",
+        "municipality",
+        "administrative",
+        "county",
+        "country"
+      ].includes(t);
     };
 
-    const isRealCountry = (place) => {
-      const a = place.address || {};
-      return a.country;
-    };
-
-    const fromValid = fromResults.some(isRealCity);
-    const toValid = toResults.some(p => isRealCity(p) || isRealCountry(p));
+    const fromValid = fromResults.some(validPlace);
+    const toValid = toResults.some(validPlace);
 
     return fromValid && toValid;
   } catch {
     return false;
   }
 };
+
+// Backend alias
+export const verifyLocation = validateLocation;

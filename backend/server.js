@@ -1,4 +1,5 @@
 // FORCE RAILWAY REBUILD
+console.log("🚀 BACKEND RELOADED — STRICT VERSION ACTIVE");
 
 import dotenv from "dotenv";
 dotenv.config({ path: "./.env" });
